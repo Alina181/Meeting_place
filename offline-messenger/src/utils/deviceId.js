@@ -1,4 +1,3 @@
-// src/utils/deviceId.js
 export const getDeviceId = () => {
   const stored = localStorage.getItem('deviceId');
   if (stored) return stored;

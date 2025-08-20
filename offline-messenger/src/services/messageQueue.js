@@ -1,4 +1,3 @@
-// src/services/messageQueue.js
 let messageQueue = JSON.parse(localStorage.getItem('messageQueue') || '[]');
 
 export const addMessage = (msg) => {

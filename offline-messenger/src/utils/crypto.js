@@ -1,6 +1,5 @@
-// src/utils/crypto.js
 const ENCRYPTION_KEY_LENGTH = 256; // AES-256
-const SALT = 'mesh_network_salt_2025'; // Общая соль для всех устройств
+const SALT = 'mesh_network_salt_2025'; // Общая 
 
 export const encryptMessage = async (text, password) => {
   const encoder = new TextEncoder();

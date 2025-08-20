@@ -1,7 +1,9 @@
-// src/App.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { FaPaperPlane, FaBluetooth } from 'react-icons/fa';
 
-// Сервисы
+import './App.css';
+
+// Импорты сервисов
 import { initPeer, sendMessage } from './services/peerService';
 import { addMessage, getMessageQueue, removeMessage } from './services/messageQueue';
 import { decryptMessage, encryptMessage } from './utils/crypto';
@@ -11,8 +13,38 @@ const App = () => {
   const [messages, setMessages] = useState([]);
   const [newMessage, setNewMessage] = useState('');
   const [targetId, setTargetId] = useState('');
+  const [theme, setTheme] = useState('light');
+  const [isConnected, setIsConnected] = useState(false);
+  const [flyingId, setFlyingId] = useState(null);
+  const messagesEndRef = useRef(null);
+
   const MY_DEVICE_ID = getDeviceId();
   let peerInstance = null;
+
+  // Автоопределение темы по времени
+  useEffect(() => {
+    const hour = new Date().getHours();
+    const saved = localStorage.getItem('app-theme');
+    if (saved) {
+      setTheme(saved);
+    } else {
+      setTheme(hour >= 20 || hour < 7 ? 'dark' : 'light');
+    }
+  }, []);
+
+  // Сохранение темы
+  useEffect(() => {
+    document.body.setAttribute('data-theme', theme);
+    localStorage.setItem('app-theme', theme);
+  }, [theme]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   const sendAck = (msgId, recipientId) => {
     const ackMsg = {
@@ -37,42 +69,27 @@ const App = () => {
   };
 
   const handleIncomingMessage = async (data) => {
-    console.log('Получено:', data);
-
-    // Обработка ACK
     if (data.type === 'ACK') {
       if (data.to === MY_DEVICE_ID) {
         removeMessage(data.msgId);
-        console.log(`✅ Сообщение ${data.msgId} доставлено`);
       }
       return;
     }
 
-    const msg = { ...data }; // копируем
-
-    if (msg.hopCount >= msg.maxHops) {
-      console.log(`⛔ Лимит прыжков достигнут: ${msg.id}`);
-      return;
-    }
-
+    const msg = { ...data };
+    if (msg.hopCount >= msg.maxHops) return;
     msg.hopCount += 1;
 
     if (msg.to === MY_DEVICE_ID) {
       try {
         const decrypted = await decryptMessage(msg.content, 'mesh2025');
-        const fullMsg = {
-          ...msg,
-          decryptedContent: decrypted,
-        };
+        const fullMsg = { ...msg, decryptedContent: decrypted };
         addMessage(fullMsg);
         setMessages((prev) => [...prev, fullMsg]);
+        setIsConnected(true);
         sendAck(msg.id, msg.from);
       } catch (e) {
-        console.error('❌ Ошибка расшифровки:', e);
-        const errorMsg = {
-          ...msg,
-          decryptedContent: '(ошибка расшифровки)',
-        };
+        const errorMsg = { ...msg, decryptedContent: '(ошибка)' };
         setMessages((prev) => [...prev, errorMsg]);
       }
     } else {
@@ -84,7 +101,6 @@ const App = () => {
     if (!newMessage.trim() || !targetId) return;
 
     try {
-      console.log('Шифруем:', newMessage);
       const encrypted = await encryptMessage(newMessage, 'mesh2025');
       const msg = {
         id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
@@ -98,6 +114,9 @@ const App = () => {
 
       addMessage(msg);
       setMessages((prev) => [...prev, msg]);
+      setFlyingId(msg.id);
+      setTimeout(() => setFlyingId(null), 600);
+
       sendMessage(targetId, msg);
       setNewMessage('');
     } catch (e) {
@@ -115,58 +134,81 @@ const App = () => {
   }, []);
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
-      <h1>🔐 Mesh-Мессенджер (оффлайн)</h1>
-      <p><strong>Твой ID:</strong> <code>{MY_DEVICE_ID}</code></p>
+    <div className="container">
+      <header className="header">
+        <h1>Место Встречи</h1>
+        <p>Оффлайновый мессенджер</p>
+      </header>
 
-      <div style={{ margin: '20px 0' }}>
-        <input
-          value={targetId}
-          onChange={(e) => setTargetId(e.target.value)}
-          placeholder="ID получателя"
-          style={{ width: '300px', padding: '8px', marginRight: '10px' }}
-        />
-        <br />
-        <textarea
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Введите сообщение..."
-          rows="3"
-          style={{ width: '300px', padding: '8px', margin: '10px 0' }}
-        />
-        <br />
-        <button onClick={sendMessageTo} style={{ padding: '10px 20px' }}>
-          Отправить
+      <div className={`connection-status ${isConnected ? 'online' : ''}`}>
+        <FaBluetooth /> <div className="dot"></div>
+        {isConnected ? 'Подключено' : 'Поиск...'}
+      </div>
+
+      <div className="theme-toggle">
+        <button className={theme === 'light' ? 'active' : ''} onClick={() => setTheme('light')}>
+          Светлая
+        </button>
+        <button className={theme === 'dark' ? 'active' : ''} onClick={() => setTheme('dark')}>
+          Тёмная
         </button>
       </div>
 
-      <h2>📬 Сообщения</h2>
-      {messages.length === 0 ? (
-        <p>Нет сообщений</p>
-      ) : (
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {messages.map((msg) => (
-            <li
-              key={msg.id}
-              style={{
-                border: '1px solid #ddd',
-                margin: '8px 0',
-                padding: '12px',
-                borderRadius: '6px',
-                backgroundColor: msg.to === MY_DEVICE_ID ? '#e6f7ff' : '#f9f9f9',
-                maxWidth: '80%',
-              }}
-            >
-              <small style={{ color: '#555' }}>
-                От: {msg.from} → Кому: {msg.to} | {new Date(msg.timestamp).toLocaleTimeString()}
-              </small>
-              <p style={{ margin: '6px 0 0', fontWeight: '500', wordBreak: 'break-word' }}>
-                {msg.decryptedContent || '(зашифровано)'}
-              </p>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="device-info">
+        <strong>ID:</strong> <code>{MY_DEVICE_ID}</code>
+      </div>
+
+      <div className="message-form">
+        <div className="input-group">
+          <input
+            type="text"
+            value={targetId}
+            onChange={(e) => setTargetId(e.target.value)}
+            placeholder="ID собеседника"
+          />
+          <button onClick={sendMessageTo} disabled={!newMessage.trim() || !targetId}>
+            <FaPaperPlane />
+          </button>
+        </div>
+        <textarea
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          placeholder="Напишите сообщение..."
+        />
+      </div>
+
+      <div className="messages">
+        {messages.length === 0 ? (
+          <div className="empty">📭 Нет сообщений</div>
+        ) : (
+          messages.map((msg) => {
+            const isMe = msg.from === MY_DEVICE_ID;
+            return (
+              <div
+                key={msg.id}
+                className={`message ${isMe ? 'sent' : 'received'} ${flyingId === msg.id ? 'flying' : ''}`}
+              >
+                <div className="message-content">
+                  {!isMe && (
+                    <div className="message-header">
+                      {msg.from === MY_DEVICE_ID ? 'Вы' : 'Собеседник'}
+                    </div>
+                  )}
+                  <div className="message-body">{msg.decryptedContent || '(зашифровано)'}</div>
+                  <div className="message-footer">
+                    {new Date(msg.timestamp).toLocaleTimeString()}
+                  </div>
+                </div>
+              </div>
+            );
+          })
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
+      <footer className="footer">
+        Место Встречи © 2025 • Без интернета
+      </footer>
     </div>
   );
 };

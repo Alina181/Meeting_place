@@ -1,4 +1,3 @@
-// src/services/peerService.js
 import Peer from 'peerjs';
 import { getDeviceId } from '../utils/deviceId';
 
