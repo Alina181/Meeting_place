@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FaPaperPlane, FaBluetooth, FaClock, FaCheck, FaCheckDouble, FaDownload } from 'react-icons/fa';
+import { FaPaperPlane, FaBluetooth, FaClock, FaCheck, FaCheckDouble, FaDownload, FaNetworkWired } from 'react-icons/fa';
 
 import './App.css';
 import { initPeer, sendMessage } from './services/peerService';
@@ -16,10 +16,12 @@ const App = () => {
   const [flyingId, setFlyingId] = useState(null);
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
+  const [peerCount, setPeerCount] = useState(0);
   const messagesEndRef = useRef(null);
   const peerInstanceRef = useRef(null);
 
   const MY_DEVICE_ID = getDeviceId();
+  const MAX_HOPS = 10; 
 
   const addMessage = (msg) => {
     setMessages((prev) => {
@@ -30,14 +32,14 @@ const App = () => {
     });
   };
 
-  // Обновление
+  // Обновление 
   const updateMessage = (msgId, updates) => {
     setMessages((prev) =>
       prev.map((m) => (m.id === msgId ? { ...m, ...updates } : m))
     );
   };
 
-  // Загрузка
+  // Загрузка 
   useEffect(() => {
     const saved = getMessageQueue();
     setMessages(saved);
@@ -58,7 +60,6 @@ const App = () => {
     localStorage.setItem('app-theme', theme);
   }, [theme]);
 
-  // Прокрутка вниз
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -67,24 +68,28 @@ const App = () => {
     scrollToBottom();
   }, [messages]);
 
-  // ACK (доставлено) 
+  // ACK
   const sendAck = (msgId, recipientId) => {
     const ackMsg = {
       type: 'ACK',
       msgId,
       from: MY_DEVICE_ID,
       to: recipientId,
+      hopCount: 0,
+      maxHops: MAX_HOPS,
     };
     sendMessage(recipientId, ackMsg);
   };
 
-  // Read Receipt (прочитано) 
+  // Read Receipt
   const sendReadReceipt = (msgId, recipientId) => {
     const readMsg = {
       type: 'READ',
       msgId,
       from: MY_DEVICE_ID,
       to: recipientId,
+      hopCount: 0,
+      maxHops: MAX_HOPS,
     };
     sendMessage(recipientId, readMsg);
   };
@@ -92,6 +97,13 @@ const App = () => {
   const forwardMessage = (msg) => {
     const peerInstance = peerInstanceRef.current;
     if (!peerInstance) return;
+
+    msg.hopCount += 1;
+
+    if (msg.hopCount >= msg.maxHops) {
+      console.log(`⛔ Сообщение ${msg.id} достигло лимита прыжков`);
+      return;
+    }
 
     Object.keys(peerInstance.connections).forEach((peerId) => {
       if (peerId !== msg.from) {
@@ -101,38 +113,41 @@ const App = () => {
         }
       }
     });
+
+    console.log(`🔁 Ретрансляция: ${msg.id} → ${Object.keys(peerInstance.connections).join(', ')}`);
   };
 
+  // Обработка сообщений
   const handleIncomingMessage = async (data) => {
     if (data.from === MY_DEVICE_ID) {
       console.log('🔁 Игнор: своё сообщение', data.id);
       return;
     }
 
-    // ACK — доставлено
-    if (data.type === 'ACK') {
-      if (data.to === MY_DEVICE_ID) {
-        updateMessage(data.msgId, { status: 'delivered' });
-      }
-      return;
-    }
-
-    // READ — прочитано
-    if (data.type === 'READ') {
-      if (data.to === MY_DEVICE_ID) {
-        updateMessage(data.msgId, { status: 'read' });
-      }
-      return;
-    }
-
     if (messages.some(m => m.id === data.id)) {
+      console.log('🚫 Дубль', data.id);
       return;
     }
 
-    let msg = { ...data };
+    const msg = { ...data };
 
-    if (msg.hopCount >= msg.maxHops) return;
-    msg.hopCount += 1;
+    if (msg.type === 'ACK') {
+      if (msg.to === MY_DEVICE_ID) {
+        updateMessage(msg.msgId, { status: 'delivered' });
+      } else {
+        forwardMessage(msg); 
+      }
+      return;
+    }
+
+    if (msg.type === 'READ') {
+      if (msg.to === MY_DEVICE_ID) {
+        updateMessage(msg.msgId, { status: 'read' });
+      } else {
+        forwardMessage(msg); 
+      }
+      return;
+    }
 
     if (msg.to === MY_DEVICE_ID) {
       try {
@@ -145,7 +160,7 @@ const App = () => {
         addMessage(fullMsg);
         setIsConnected(true);
         sendAck(msg.id, msg.from);
-        sendReadReceipt(msg.id, msg.from); 
+        sendReadReceipt(msg.id, msg.from);
       } catch (e) {
         const errorMsg = {
           ...msg,
@@ -159,7 +174,7 @@ const App = () => {
     }
   };
 
-  // Отправка сообщения
+  // Отправка
   const sendMessageTo = async () => {
     if (!newMessage.trim() || !targetId) return;
     if (targetId === MY_DEVICE_ID) {
@@ -177,7 +192,7 @@ const App = () => {
         content: encrypted,
         timestamp: Date.now(),
         hopCount: 0,
-        maxHops: 10,
+        maxHops: MAX_HOPS,
         decryptedContent: newMessage,
         status: 'sent',
       };
@@ -193,10 +208,17 @@ const App = () => {
     }
   };
 
-  // Инициализация P2P
+  // P2P
   useEffect(() => {
     const peerInstance = initPeer(handleIncomingMessage);
     peerInstanceRef.current = peerInstance;
+
+    peerInstance.on('connection', () => {
+      setPeerCount(Object.keys(peerInstance.connections).length);
+    });
+    peerInstance.on('disconnected', () => {
+      setPeerCount(Object.keys(peerInstance.connections).length);
+    });
 
     return () => {
       if (peerInstance) peerInstance.destroy();
@@ -226,7 +248,6 @@ const App = () => {
 
   const handleInstallClick = async () => {
     if (!installPrompt) return;
-
     installPrompt.prompt();
     const { outcome } = await installPrompt.userChoice;
     console.log(`PWA: Установка ${outcome}`);
@@ -238,10 +259,10 @@ const App = () => {
     <div className="container">
       <header className="header">
         <h1>Место Встречи</h1>
-        <p>Оффлайновый мессенджер</p>
+        <p>Оффлайновый mesh-мессенджер</p>
       </header>
 
-      {/* Кнопка PWA */}
+      {/* Кнопка установки */}
       {showInstallButton && (
         <div
           style={{
@@ -261,13 +282,12 @@ const App = () => {
           onClick={handleInstallClick}
         >
           <FaDownload />
-          Установить приложение2.0
+          Установить приложение
         </div>
       )}
 
       <div className={`connection-status ${isConnected ? 'online' : ''}`}>
-        <FaBluetooth /> <div className="dot"></div>
-        {isConnected ? 'Подключено' : 'Поиск...'}
+        <FaNetworkWired /> {peerCount} узлов | {isConnected ? 'Mesh-сеть активна' : 'Поиск...'}
       </div>
 
       <div className="theme-toggle">
@@ -280,7 +300,7 @@ const App = () => {
       </div>
 
       <div className="device-info">
-        <strong>ID:</strong> <code>{MY_DEVICE_ID}</code>
+        <strong>Ты:</strong> <code>{MY_DEVICE_ID}</code>
       </div>
 
       <div className="message-form">
@@ -316,7 +336,7 @@ const App = () => {
                 <div className="message-content">
                   {!isMe && (
                     <div className="message-header">
-                      Собеседник
+                      {msg.hopCount > 0 ? `через ${msg.hopCount} прыжка(ов)` : 'напрямую'}
                     </div>
                   )}
                   <div className="message-body">{msg.decryptedContent || '(ошибка)'}</div>
@@ -339,7 +359,7 @@ const App = () => {
       </div>
 
       <footer className="footer">
-        Место Встречи2.0 © 2025 • Без интернета • Установите приложение
+        Место Встречи © 2025 • Mesh-сеть • Без интернета
       </footer>
     </div>
   );
