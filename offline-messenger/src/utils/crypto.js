@@ -1,9 +1,16 @@
-const ENCRYPTION_KEY_LENGTH = 256; // AES-256
-const SALT = 'mesh_network_salt_2025'; // Общая 
+const NETWORK_PASSWORD = 'Место Встречи 2025';
+const SALT = 'mesh_salt_2025_place_of_meet';
 
-export const encryptMessage = async (text, password) => {
+export const encryptMessage = async (text) => {
   const encoder = new TextEncoder();
-  const keyMaterial = await getKeyMaterial(password);
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(NETWORK_PASSWORD),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
+
   const aesKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
@@ -12,13 +19,13 @@ export const encryptMessage = async (text, password) => {
       hash: 'SHA-256',
     },
     keyMaterial,
-    { name: 'AES-GCM', length: ENCRYPTION_KEY_LENGTH },
+    { name: 'AES-GCM', length: 256 },
     false,
     ['encrypt']
   );
 
   const data = encoder.encode(text);
-  const iv = crypto.getRandomValues(new Uint8Array(12)); // AES-GCM IV = 12 байт
+  const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
     { name: 'AES-GCM', iv },
     aesKey,
@@ -26,16 +33,21 @@ export const encryptMessage = async (text, password) => {
   );
 
   return {
-    ciphertext: btoa(String.fromCharCode(...new Uint8Array(encrypted))),
-    iv: btoa(String.fromCharCode(...iv)),
+    ciphertext: arrayBufferToBase64(encrypted),
+    iv: arrayBufferToBase64(iv),
   };
 };
 
-export const decryptMessage = async (encrypted, password) => {
-  const decoder = new TextDecoder();
+export const decryptMessage = async (encryptedObj) => {
   const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(NETWORK_PASSWORD),
+    { name: 'PBKDF2' },
+    false,
+    ['deriveKey']
+  );
 
-  const keyMaterial = await getKeyMaterial(password);
   const aesKey = await crypto.subtle.deriveKey(
     {
       name: 'PBKDF2',
@@ -44,21 +56,13 @@ export const decryptMessage = async (encrypted, password) => {
       hash: 'SHA-256',
     },
     keyMaterial,
-    { name: 'AES-GCM', length: ENCRYPTION_KEY_LENGTH },
+    { name: 'AES-GCM', length: 256 },
     false,
     ['decrypt']
   );
 
-  const iv = new Uint8Array(
-    atob(encrypted.iv)
-      .split('')
-      .map((c) => c.charCodeAt(0))
-  );
-  const ciphertext = new Uint8Array(
-    atob(encrypted.ciphertext)
-      .split('')
-      .map((c) => c.charCodeAt(0))
-  );
+  const iv = base64ToArrayBuffer(encryptedObj.iv);
+  const ciphertext = base64ToArrayBuffer(encryptedObj.ciphertext);
 
   const decrypted = await crypto.subtle.decrypt(
     { name: 'AES-GCM', iv },
@@ -66,17 +70,20 @@ export const decryptMessage = async (encrypted, password) => {
     ciphertext
   );
 
-  return decoder.decode(decrypted);
+  return new TextDecoder().decode(decrypted);
 };
 
-async function getKeyMaterial(password) {
-  const encoder = new TextEncoder();
-  const passwordBuffer = encoder.encode(password);
-  return await crypto.subtle.importKey(
-    'raw',
-    passwordBuffer,
-    { name: 'PBKDF2' },
-    false,
-    ['deriveKey']
-  );
-}
+export const arrayBufferToBase64 = (buffer) => {
+  const bytes = new Uint8Array(buffer);
+  const binary = String.fromCharCode(...bytes);
+  return btoa(binary);
+};
+
+export const base64ToArrayBuffer = (base64) => {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes.buffer;
+};

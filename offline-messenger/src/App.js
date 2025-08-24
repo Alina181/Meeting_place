@@ -1,12 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FaPaperPlane, FaBluetooth } from 'react-icons/fa';
+import { FaPaperPlane, FaBluetooth, FaClock, FaCheck, FaCheckDouble, FaDownload } from 'react-icons/fa';
 
 import './App.css';
-
-// Импорты сервисов
 import { initPeer, sendMessage } from './services/peerService';
-import { addMessage, getMessageQueue, removeMessage } from './services/messageQueue';
-import { decryptMessage, encryptMessage } from './utils/crypto';
+import { addMessage as saveToStorage, getMessageQueue, removeMessage, updateMessageStatus } from './services/messageQueue';
+import { encryptMessage, decryptMessage } from './utils/crypto';
 import { getDeviceId } from './utils/deviceId';
 
 const App = () => {
@@ -16,12 +14,35 @@ const App = () => {
   const [theme, setTheme] = useState('light');
   const [isConnected, setIsConnected] = useState(false);
   const [flyingId, setFlyingId] = useState(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
   const messagesEndRef = useRef(null);
+  const peerInstanceRef = useRef(null);
 
   const MY_DEVICE_ID = getDeviceId();
-  let peerInstance = null;
 
-  // Автоопределение темы по времени
+  const addMessage = (msg) => {
+    setMessages((prev) => {
+      if (prev.some(m => m.id === msg.id)) return prev;
+      const updated = [...prev, msg];
+      localStorage.setItem('messageQueue', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // Обновление
+  const updateMessage = (msgId, updates) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, ...updates } : m))
+    );
+  };
+
+  // Загрузка
+  useEffect(() => {
+    const saved = getMessageQueue();
+    setMessages(saved);
+  }, []);
+
   useEffect(() => {
     const hour = new Date().getHours();
     const saved = localStorage.getItem('app-theme');
@@ -32,12 +53,12 @@ const App = () => {
     }
   }, []);
 
-  // Сохранение темы
   useEffect(() => {
     document.body.setAttribute('data-theme', theme);
     localStorage.setItem('app-theme', theme);
   }, [theme]);
 
+  // Прокрутка вниз
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -46,6 +67,7 @@ const App = () => {
     scrollToBottom();
   }, [messages]);
 
+  // ACK (доставлено) 
   const sendAck = (msgId, recipientId) => {
     const ackMsg = {
       type: 'ACK',
@@ -56,8 +78,21 @@ const App = () => {
     sendMessage(recipientId, ackMsg);
   };
 
+  // Read Receipt (прочитано) 
+  const sendReadReceipt = (msgId, recipientId) => {
+    const readMsg = {
+      type: 'READ',
+      msgId,
+      from: MY_DEVICE_ID,
+      to: recipientId,
+    };
+    sendMessage(recipientId, readMsg);
+  };
+
   const forwardMessage = (msg) => {
+    const peerInstance = peerInstanceRef.current;
     if (!peerInstance) return;
+
     Object.keys(peerInstance.connections).forEach((peerId) => {
       if (peerId !== msg.from) {
         const conn = peerInstance.connections[peerId][0];
@@ -69,52 +104,86 @@ const App = () => {
   };
 
   const handleIncomingMessage = async (data) => {
+    if (data.from === MY_DEVICE_ID) {
+      console.log('🔁 Игнор: своё сообщение', data.id);
+      return;
+    }
+
+    // ACK — доставлено
     if (data.type === 'ACK') {
       if (data.to === MY_DEVICE_ID) {
-        removeMessage(data.msgId);
+        updateMessage(data.msgId, { status: 'delivered' });
       }
       return;
     }
 
-    const msg = { ...data };
+    // READ — прочитано
+    if (data.type === 'READ') {
+      if (data.to === MY_DEVICE_ID) {
+        updateMessage(data.msgId, { status: 'read' });
+      }
+      return;
+    }
+
+    if (messages.some(m => m.id === data.id)) {
+      return;
+    }
+
+    let msg = { ...data };
+
     if (msg.hopCount >= msg.maxHops) return;
     msg.hopCount += 1;
 
     if (msg.to === MY_DEVICE_ID) {
       try {
-        const decrypted = await decryptMessage(msg.content, 'mesh2025');
-        const fullMsg = { ...msg, decryptedContent: decrypted };
+        const decrypted = await decryptMessage(msg.content);
+        const fullMsg = {
+          ...msg,
+          decryptedContent: decrypted,
+          status: 'delivered',
+        };
         addMessage(fullMsg);
-        setMessages((prev) => [...prev, fullMsg]);
         setIsConnected(true);
         sendAck(msg.id, msg.from);
+        sendReadReceipt(msg.id, msg.from); 
       } catch (e) {
-        const errorMsg = { ...msg, decryptedContent: '(ошибка)' };
-        setMessages((prev) => [...prev, errorMsg]);
+        const errorMsg = {
+          ...msg,
+          decryptedContent: '(ошибка)',
+          status: 'delivered',
+        };
+        addMessage(errorMsg);
       }
     } else {
       forwardMessage(msg);
     }
   };
 
+  // Отправка сообщения
   const sendMessageTo = async () => {
     if (!newMessage.trim() || !targetId) return;
+    if (targetId === MY_DEVICE_ID) {
+      alert('Нельзя отправить себе');
+      return;
+    }
 
     try {
-      const encrypted = await encryptMessage(newMessage, 'mesh2025');
+      const encrypted = await encryptMessage(newMessage);
+      const msgId = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
       const msg = {
-        id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+        id: msgId,
         from: MY_DEVICE_ID,
         to: targetId,
         content: encrypted,
         timestamp: Date.now(),
         hopCount: 0,
         maxHops: 10,
+        decryptedContent: newMessage,
+        status: 'sent',
       };
 
       addMessage(msg);
-      setMessages((prev) => [...prev, msg]);
-      setFlyingId(msg.id);
+      setFlyingId(msgId);
       setTimeout(() => setFlyingId(null), 600);
 
       sendMessage(targetId, msg);
@@ -124,14 +193,46 @@ const App = () => {
     }
   };
 
+  // Инициализация P2P
   useEffect(() => {
-    peerInstance = initPeer(handleIncomingMessage);
-    setMessages(getMessageQueue());
+    const peerInstance = initPeer(handleIncomingMessage);
+    peerInstanceRef.current = peerInstance;
 
     return () => {
       if (peerInstance) peerInstance.destroy();
     };
   }, []);
+
+  // PWA
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setInstallPrompt(e);
+      setShowInstallButton(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    window.addEventListener('appinstalled', () => {
+      setShowInstallButton(false);
+      setInstallPrompt(null);
+      console.log('PWA: Приложение установлено');
+    });
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!installPrompt) return;
+
+    installPrompt.prompt();
+    const { outcome } = await installPrompt.userChoice;
+    console.log(`PWA: Установка ${outcome}`);
+    setInstallPrompt(null);
+    setShowInstallButton(false);
+  };
 
   return (
     <div className="container">
@@ -139,6 +240,30 @@ const App = () => {
         <h1>Место Встречи</h1>
         <p>Оффлайновый мессенджер</p>
       </header>
+
+      {/* Кнопка PWA */}
+      {showInstallButton && (
+        <div
+          style={{
+            backgroundColor: '#4C7DFF',
+            color: 'white',
+            padding: '12px 16px',
+            textAlign: 'center',
+            fontSize: '0.95rem',
+            fontWeight: '500',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            cursor: 'pointer',
+            borderTop: '1px solid rgba(255,255,255,0.2)',
+          }}
+          onClick={handleInstallClick}
+        >
+          <FaDownload />
+          Установить приложение
+        </div>
+      )}
 
       <div className={`connection-status ${isConnected ? 'online' : ''}`}>
         <FaBluetooth /> <div className="dot"></div>
@@ -164,7 +289,7 @@ const App = () => {
             type="text"
             value={targetId}
             onChange={(e) => setTargetId(e.target.value)}
-            placeholder="ID собеседника"
+            placeholder="ID получателя"
           />
           <button onClick={sendMessageTo} disabled={!newMessage.trim() || !targetId}>
             <FaPaperPlane />
@@ -191,12 +316,19 @@ const App = () => {
                 <div className="message-content">
                   {!isMe && (
                     <div className="message-header">
-                      {msg.from === MY_DEVICE_ID ? 'Вы' : 'Собеседник'}
+                      Собеседник
                     </div>
                   )}
-                  <div className="message-body">{msg.decryptedContent || '(зашифровано)'}</div>
+                  <div className="message-body">{msg.decryptedContent || '(ошибка)'}</div>
                   <div className="message-footer">
                     {new Date(msg.timestamp).toLocaleTimeString()}
+                    {isMe && (
+                      <span style={{ marginLeft: '8px' }}>
+                        {msg.status === 'sent' && <FaClock title="Отправлено" />}
+                        {msg.status === 'delivered' && <FaCheck title="Доставлено" />}
+                        {msg.status === 'read' && <FaCheckDouble title="Прочитано" style={{ color: '#6a9eff' }} />}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -207,7 +339,7 @@ const App = () => {
       </div>
 
       <footer className="footer">
-        Место Встречи © 2025 • Без интернета
+        Место Встречи © 2025 • Без интернета • Установите приложение
       </footer>
     </div>
   );

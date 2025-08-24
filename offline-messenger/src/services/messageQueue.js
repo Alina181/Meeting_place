@@ -1,18 +1,22 @@
-let messageQueue = JSON.parse(localStorage.getItem('messageQueue') || '[]');
-
 export const addMessage = (msg) => {
-  if (messageQueue.some((m) => m.id === msg.id)) return;
-  messageQueue.push(msg);
-  saveToStorage();
+  const queue = JSON.parse(localStorage.getItem('messageQueue') || '[]');
+  if (queue.some(m => m.id === msg.id)) return;
+  queue.push(msg);
+  localStorage.setItem('messageQueue', JSON.stringify(queue));
 };
 
 export const removeMessage = (msgId) => {
-  messageQueue = messageQueue.filter((m) => m.id !== msgId);
-  saveToStorage();
+  const queue = JSON.parse(localStorage.getItem('messageQueue') || '[]');
+  const filtered = queue.filter(m => m.id !== msgId);
+  localStorage.setItem('messageQueue', JSON.stringify(filtered));
 };
 
-export const getMessageQueue = () => messageQueue;
+export const updateMessageStatus = (msgId, status) => {
+  const queue = JSON.parse(localStorage.getItem('messageQueue') || '[]');
+  const updated = queue.map(m => m.id === msgId ? { ...m, status } : m);
+  localStorage.setItem('messageQueue', JSON.stringify(updated));
+};
 
-const saveToStorage = () => {
-  localStorage.setItem('messageQueue', JSON.stringify(messageQueue));
+export const getMessageQueue = () => {
+  return JSON.parse(localStorage.getItem('messageQueue') || '[]');
 };
