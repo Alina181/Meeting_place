@@ -1,6 +1,6 @@
 {
   "name": "Место Встречи",
-  "short_name": "Место встречи",
+  "short_name": "Место",
   "start_url": ".",
   "display": "standalone",
   "background_color": "#4C7DFF",
