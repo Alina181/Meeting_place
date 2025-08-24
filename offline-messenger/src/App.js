@@ -261,7 +261,7 @@ const App = () => {
           onClick={handleInstallClick}
         >
           <FaDownload />
-          Установить приложение
+          Установить приложение2.0
         </div>
       )}
 
