@@ -3,14 +3,23 @@ import { getDeviceId } from '../utils/deviceId';
 
 let peerInstance = null;
 
-export const initPeer = (onMessageReceived) => {
-  const deviceId = getDeviceId();
-  peerInstance = new Peer(deviceId);
+export const initPeer = (onMessage) => {
+  const id = getDeviceId();
+  peerInstance = new Peer(id, {
+    host: 'localhost',
+    port: 9000,
+    path: '/peerjs',
+    secure: false,
+    config: {
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]
+    }
+  });
 
   peerInstance.on('connection', (conn) => {
-    conn.on('data', (data) => {
-      onMessageReceived(data);
-    });
+    conn.on('data', onMessage);
   });
 
   peerInstance.on('error', (err) => {
@@ -20,17 +29,11 @@ export const initPeer = (onMessageReceived) => {
   return peerInstance;
 };
 
-export const connectToDevice = (targetDeviceId) => {
-  if (!peerInstance) return null;
-  return peerInstance.connect(targetDeviceId);
+export const sendMessage = (targetId, msg) => {
+  if (!peerInstance) return console.error('Peer не инициализирован');
+  const conn = peerInstance.connect(targetId);
+  conn.on('open', () => conn.send(msg));
+  conn.on('error', (err) => console.error('Ошибка отправки:', err));
 };
 
-export const sendMessage = (targetId, message) => {
-  const conn = peerInstance.connect(targetId);
-  conn.on('open', () => {
-    conn.send(message);
-  });
-  conn.on('error', (err) => {
-    console.error('Ошибка отправки:', err);
-  });
-};
+export const getPeerInstance = () => peerInstance;
