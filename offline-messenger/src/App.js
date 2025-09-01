@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { FaPaperPlane, FaBluetooth, FaClock, FaCheck, FaCheckDouble, FaDownload, FaNetworkWired } from 'react-icons/fa';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { FaPaperPlane, FaNetworkWired, FaClock, FaCheck, FaCheckDouble, FaDownload } from 'react-icons/fa';
 
 import './App.css';
 import { initPeer, sendMessage } from './services/peerService';
-import { addMessage as saveToStorage, getMessageQueue, removeMessage, updateMessageStatus } from './services/messageQueue';
+import { addMessage as saveToStorage, getMessageQueue, updateMessageStatus } from './services/messageQueue';
 import { encryptMessage, decryptMessage } from './utils/crypto';
 import { getDeviceId } from './utils/deviceId';
 
@@ -17,42 +17,23 @@ const App = () => {
   const [showInstallButton, setShowInstallButton] = useState(false);
   const [installPrompt, setInstallPrompt] = useState(null);
   const [peerCount, setPeerCount] = useState(0);
+
+  const MY_DEVICE_ID = getDeviceId();
+  const MAX_HOPS = 10;
   const messagesEndRef = useRef(null);
   const peerInstanceRef = useRef(null);
 
-  const MY_DEVICE_ID = getDeviceId();
-  const MAX_HOPS = 10; 
-
-  const addMessage = (msg) => {
-    setMessages((prev) => {
-      if (prev.some(m => m.id === msg.id)) return prev;
-      const updated = [...prev, msg];
-      localStorage.setItem('messageQueue', JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  // Обновление 
-  const updateMessage = (msgId, updates) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === msgId ? { ...m, ...updates } : m))
-    );
-  };
-
-  // Загрузка 
+  // Загрузка сообщений из хранилища
   useEffect(() => {
     const saved = getMessageQueue();
     setMessages(saved);
   }, []);
 
+  // Установка темы (светлая/тёмная)
   useEffect(() => {
     const hour = new Date().getHours();
-    const saved = localStorage.getItem('app-theme');
-    if (saved) {
-      setTheme(saved);
-    } else {
-      setTheme(hour >= 20 || hour < 7 ? 'dark' : 'light');
-    }
+    const savedTheme = localStorage.getItem('app-theme');
+    setTheme(savedTheme || (hour >= 20 || hour < 7 ? 'dark' : 'light'));
   }, []);
 
   useEffect(() => {
@@ -60,16 +41,34 @@ const App = () => {
     localStorage.setItem('app-theme', theme);
   }, [theme]);
 
-  const scrollToBottom = () => {
+  // Авто-скролл к последнему сообщению
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  }, []);
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, scrollToBottom]);
 
-  // ACK
-  const sendAck = (msgId, recipientId) => {
+  // Добавление нового сообщения
+  const addMessage = useCallback((msg) => {
+    setMessages((prev) => {
+      if (prev.some(m => m.id === msg.id)) return prev;
+      const updated = [...prev, msg];
+      localStorage.setItem('messageQueue', JSON.stringify(updated));
+      return updated;
+    });
+  }, []);
+
+  // Обновление статуса сообщения
+  const updateMessage = useCallback((msgId, updates) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msgId ? { ...m, ...updates } : m))
+    );
+  }, []);
+
+  // Отправка ACK (доставлено)
+  const sendAck = useCallback((msgId, recipientId) => {
     const ackMsg = {
       type: 'ACK',
       msgId,
@@ -79,10 +78,10 @@ const App = () => {
       maxHops: MAX_HOPS,
     };
     sendMessage(recipientId, ackMsg);
-  };
+  }, [MY_DEVICE_ID]);
 
-  // Read Receipt
-  const sendReadReceipt = (msgId, recipientId) => {
+  // Отправка Read Receipt (прочитано)
+  const sendReadReceipt = useCallback((msgId, recipientId) => {
     const readMsg = {
       type: 'READ',
       msgId,
@@ -92,16 +91,16 @@ const App = () => {
       maxHops: MAX_HOPS,
     };
     sendMessage(recipientId, readMsg);
-  };
+  }, [MY_DEVICE_ID]);
 
-  const forwardMessage = (msg) => {
+  // Ретрансляция сообщения
+  const forwardMessage = useCallback((msg) => {
     const peerInstance = peerInstanceRef.current;
     if (!peerInstance) return;
 
     msg.hopCount += 1;
-
     if (msg.hopCount >= msg.maxHops) {
-      console.log(`⛔ Сообщение ${msg.id} достигло лимита прыжков`);
+      console.log(`⛔ Лимит прыжков достигнут: ${msg.id}`);
       return;
     }
 
@@ -115,19 +114,12 @@ const App = () => {
     });
 
     console.log(`🔁 Ретрансляция: ${msg.id} → ${Object.keys(peerInstance.connections).join(', ')}`);
-  };
+  }, []);
 
-  // Обработка сообщений
-  const handleIncomingMessage = async (data) => {
-    if (data.from === MY_DEVICE_ID) {
-      console.log('🔁 Игнор: своё сообщение', data.id);
-      return;
-    }
-
-    if (messages.some(m => m.id === data.id)) {
-      console.log('🚫 Дубль', data.id);
-      return;
-    }
+  // Обработка входящего сообщения
+  const handleIncomingMessage = useCallback(async (data) => {
+    if (data.from === MY_DEVICE_ID) return;
+    if (messages.some(m => m.id === data.id)) return;
 
     const msg = { ...data };
 
@@ -135,7 +127,7 @@ const App = () => {
       if (msg.to === MY_DEVICE_ID) {
         updateMessage(msg.msgId, { status: 'delivered' });
       } else {
-        forwardMessage(msg); 
+        forwardMessage(msg);
       }
       return;
     }
@@ -144,7 +136,7 @@ const App = () => {
       if (msg.to === MY_DEVICE_ID) {
         updateMessage(msg.msgId, { status: 'read' });
       } else {
-        forwardMessage(msg); 
+        forwardMessage(msg);
       }
       return;
     }
@@ -162,19 +154,18 @@ const App = () => {
         sendAck(msg.id, msg.from);
         sendReadReceipt(msg.id, msg.from);
       } catch (e) {
-        const errorMsg = {
+        addMessage({
           ...msg,
-          decryptedContent: '(ошибка)',
+          decryptedContent: '(ошибка расшифровки)',
           status: 'delivered',
-        };
-        addMessage(errorMsg);
+        });
       }
     } else {
       forwardMessage(msg);
     }
-  };
+  }, [messages, MY_DEVICE_ID, addMessage, updateMessage, sendAck, sendReadReceipt, forwardMessage]);
 
-  // Отправка
+  // Отправка сообщения
   const sendMessageTo = async () => {
     if (!newMessage.trim() || !targetId) return;
     if (targetId === MY_DEVICE_ID) {
@@ -208,7 +199,7 @@ const App = () => {
     }
   };
 
-  // P2P
+  // Инициализация P2P
   useEffect(() => {
     const peerInstance = initPeer(handleIncomingMessage);
     peerInstanceRef.current = peerInstance;
@@ -223,9 +214,9 @@ const App = () => {
     return () => {
       if (peerInstance) peerInstance.destroy();
     };
-  }, []);
+  }, [handleIncomingMessage]);
 
-  // PWA
+  // PWA: установка
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
       e.preventDefault();
@@ -234,7 +225,6 @@ const App = () => {
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-
     window.addEventListener('appinstalled', () => {
       setShowInstallButton(false);
       setInstallPrompt(null);
@@ -262,25 +252,9 @@ const App = () => {
         <p>Оффлайновый mesh-мессенджер</p>
       </header>
 
-      {/* Кнопка установки */}
+      {/* Кнопка установки PWA */}
       {showInstallButton && (
-        <div
-          style={{
-            backgroundColor: '#4C7DFF',
-            color: 'white',
-            padding: '12px 16px',
-            textAlign: 'center',
-            fontSize: '0.95rem',
-            fontWeight: '500',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '8px',
-            cursor: 'pointer',
-            borderTop: '1px solid rgba(255,255,255,0.2)',
-          }}
-          onClick={handleInstallClick}
-        >
+        <div className="install-button" onClick={handleInstallClick}>
           <FaDownload />
           Установить приложение
         </div>
@@ -303,6 +277,23 @@ const App = () => {
         <strong>Ты:</strong> <code>{MY_DEVICE_ID}</code>
       </div>
 
+      <div className="messages">
+        {messages.length === 0 ? (
+          <div className="empty">📭 Нет сообщений</div>
+        ) : (
+          messages.map((msg) => (
+            <Message
+              key={msg.id}
+              message={msg}
+              isMe={msg.from === MY_DEVICE_ID}
+              flying={flyingId === msg.id}
+              MY_DEVICE_ID={MY_DEVICE_ID}
+            />
+          ))
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+
       <div className="message-form">
         <div className="input-group">
           <input
@@ -322,47 +313,37 @@ const App = () => {
         />
       </div>
 
-      <div className="messages">
-        {messages.length === 0 ? (
-          <div className="empty">📭 Нет сообщений</div>
-        ) : (
-          messages.map((msg) => {
-            const isMe = msg.from === MY_DEVICE_ID;
-            return (
-              <div
-                key={msg.id}
-                className={`message ${isMe ? 'sent' : 'received'} ${flyingId === msg.id ? 'flying' : ''}`}
-              >
-                <div className="message-content">
-                  {!isMe && (
-                    <div className="message-header">
-                      {msg.hopCount > 0 ? `через ${msg.hopCount} прыжка(ов)` : 'напрямую'}
-                    </div>
-                  )}
-                  <div className="message-body">{msg.decryptedContent || '(ошибка)'}</div>
-                  <div className="message-footer">
-                    {new Date(msg.timestamp).toLocaleTimeString()}
-                    {isMe && (
-                      <span style={{ marginLeft: '8px' }}>
-                        {msg.status === 'sent' && <FaClock title="Отправлено" />}
-                        {msg.status === 'delivered' && <FaCheck title="Доставлено" />}
-                        {msg.status === 'read' && <FaCheckDouble title="Прочитано" style={{ color: '#6a9eff' }} />}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            );
-          })
-        )}
-        <div ref={messagesEndRef} />
-      </div>
-
       <footer className="footer">
         Место Встречи © 2025 • Mesh-сеть • Без интернета
       </footer>
     </div>
   );
 };
+
+// Компонент сообщения (оптимизирован)
+const Message = React.memo(({ message, isMe, flying }) => {
+  return (
+    <div className={`message ${isMe ? 'sent' : 'received'} ${flying ? 'flying' : ''}`}>
+      <div className="message-content">
+        {!isMe && message.hopCount > 0 && (
+          <div className="message-header">через {message.hopCount} прыжка(ов)</div>
+        )}
+        <div className="message-body">{message.decryptedContent || '(ошибка)'}</div>
+        <div className="message-footer">
+          {new Date(message.timestamp).toLocaleTimeString()}
+          {isMe && (
+            <span style={{ marginLeft: '8px' }}>
+              {message.status === 'sent' && <FaClock title="Отправлено" />}
+              {message.status === 'delivered' && <FaCheck title="Доставлено" />}
+              {message.status === 'read' && (
+                <FaCheckDouble title="Прочитано" style={{ color: '#6a9eff' }} />
+              )}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+});
 
 export default App;
