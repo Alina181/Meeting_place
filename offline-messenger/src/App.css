@@ -60,26 +60,30 @@ body {
 .container {
   max-width: 800px;
   margin: 0 auto;
-  border-radius: 16px;
+  border-radius: 14px;
   overflow: hidden;
   box-shadow: var(--shadow);
   background-color: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100vh; /* Занимает весь экран */
 }
 
-/* Адаптивность: мобильные устройства */
+/* Адаптивность */
 @media (max-width: 768px) {
   .container {
     width: 100%;
     height: 100vh;
     border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    margin: 0;
+  }
+
+  body {
+    padding: 0;
+    margin: 0;
   }
 }
 
-/* Шапка */
 .header {
   background: var(--bg-chat);
   padding: 16px;
@@ -107,7 +111,7 @@ body {
   }
 }
 
-/* Статус подключения */
+/* Статус */
 .connection-status {
   display: flex;
   align-items: center;
@@ -170,7 +174,6 @@ body {
   }
 }
 
-/* Инфо о устройстве */
 .device-info {
   padding: 10px 16px;
   background: var(--bg-chat);
@@ -200,13 +203,20 @@ body {
   }
 }
 
+.chat-container {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0; 
+  overflow: hidden;
+}
+
 /* Чат */
 .messages {
-  padding: 12px 16px;
   flex: 1;
   overflow-y: auto;
+  padding: 12px 16px;
   background: var(--bg-chat);
-  background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23000000' fill-opacity='0.02'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
   background-repeat: repeat;
 }
 
@@ -222,7 +232,6 @@ body {
 .message {
   margin-bottom: 10px;
   display: flex;
-  flex-direction: row;
 }
 .message.sent {
   justify-content: flex-end;
@@ -370,6 +379,23 @@ body {
   animation: flyAway 0.6s forwards;
 }
 
+/* Кнопка PWA */
+.install-button {
+  background-color: var(--accent);
+  color: white;
+  padding: 12px 16px;
+  text-align: center;
+  font-size: 0.95rem;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  margin: 0;
+}
+
 /* Низ */
 .footer {
   text-align: center;
@@ -386,54 +412,33 @@ body {
   }
 }
 
-/* Кнопка установки PWA */
-.install-button {
-  background-color: var(--accent);
-  color: white;
-  padding: 12px 16px;
-  text-align: center;
-  font-size: 0.95rem;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  cursor: pointer;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  margin: 0;
-  border-radius: 0;
-  width: 100%;
-}
-
-/* Дополнительные стили для мобильных */
 @media (max-width: 480px) {
-  .container {
-    border-radius: 8px;
-  }
-
   .header h1 {
     font-size: 1.3rem;
   }
-
+  .header p {
+    font-size: 0.7rem;
+  }
+  .theme-toggle {
+    padding: 6px;
+  }
+  .theme-toggle button {
+    padding: 4px 8px;
+    font-size: 0.75rem;
+  }
+  .device-info {
+    font-size: 0.75rem;
+    padding: 6px 10px;
+  }
+  .device-info code {
+    font-size: 0.7rem;
+  }
   .message-form input,
   .message-form textarea {
     font-size: 0.85rem;
   }
-
-  .message-content {
-    max-width: 80%;
-  }
-
   .install-button {
-    padding: 10px;
     font-size: 0.9rem;
-  }
-
-  .theme-toggle {
-    padding: 6px;
-  }
-
-  .device-info {
-    font-size: 0.75rem;
+    padding: 10px;
   }
 }
