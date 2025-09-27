@@ -66,10 +66,9 @@ body {
   background-color: var(--bg-secondary);
   display: flex;
   flex-direction: column;
-  height: 100vh; /* Занимает весь экран */
+  height: 100vh; 
 }
 
-/* Адаптивность */
 @media (max-width: 768px) {
   .container {
     width: 100%;
@@ -111,7 +110,6 @@ body {
   }
 }
 
-/* Статус */
 .connection-status {
   display: flex;
   align-items: center;
@@ -140,7 +138,6 @@ body {
   }
 }
 
-/* Переключатель темы */
 .theme-toggle {
   display: flex;
   justify-content: center;
@@ -364,7 +361,6 @@ body {
   }
 }
 
-/* Анимация отправки */
 @keyframes flyAway {
   0% {
     transform: translateX(0) translateY(0) rotate(0);
@@ -379,7 +375,6 @@ body {
   animation: flyAway 0.6s forwards;
 }
 
-/* Кнопка PWA */
 .install-button {
   background-color: var(--accent);
   color: white;
